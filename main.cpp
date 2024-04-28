@@ -1,83 +1,115 @@
 // BRODEN NESTLER
 // PROGRAM 14 - Store Simulator
 // bcntck@umkc.edu
-
 #include <iostream>
-#include <cstdlib> // For rand() function
-#include <ctime>   // For time() function
-#include "LINKEDLIST.h"
-#include "QUEUE.h"
-#include "CUSTOMER.h"
+#include <cstdlib>
+#include <ctime>
+#include "LinkedList.h"
+#include "Queue.h"
+#include "Checkout.h"
 
 using namespace std;
 
-int main() {
-    srand(time(0));
+// Constants for simulation
+const int storeOpenMinutes = 720;
+const int itemsPerMinuteMin = 1;
+const int itemsPerMinuteMax = 3;
+const double itemShoppingTimeMin = 0.5; // 30 seconds
+const double itemShoppingTimeMax = 1.0; // 1 minute
+const double itemCheckoutTimePerItem = 0.15; // 0.15 minutes per item
 
-    const int storeOpenTime = 720;
-    int numCheckouts;
+// Helper function to generate random number within a range
+int getRandom(int min, int max) {
+    return rand() % (max - min + 1) + min;
+}
 
-    cout << "Enter the number of checkout lines: ";
-    cin >> numCheckouts;
+// Simulate the grocery store       **USED CHATPGT to help format and fix simulation**
+void simulateStore(int numCheckoutLines) {
+    LinkedList shopperList;
+    Queue checkoutLines[numCheckoutLines];
+    CheckoutStats stats[numCheckoutLines];
 
-    // Create an array of checkout queues
-    Queue* checkouts = new Queue[numCheckouts];
+    // Initialize random number generator
+    srand((time(nullptr)));
 
-    LinkedList shoppers; // Linked list to store shoppers in the store
+    // Simulation loop
+    for (int currentTime = 0; currentTime <= storeOpenMinutes; currentTime++) {
+        // Randomly determine number of customers arriving
+        int numCustomers = getRandom(itemsPerMinuteMin, itemsPerMinuteMax);
+        for (int i = 0; i < numCustomers; i++) {
+            // Generate random shopping time for each item
+            int itemCount;
+            double shoppingTime = 0.0;
+            int randItem = rand() % 100 + 1; // Random percentage
+            if (randItem <= 40) {
+                itemCount = getRandom(1, 10); // 40% purchase <10
+            } else if (randItem <= 70) {
+                itemCount = getRandom(11, 20);// 30% purchase 11-20     // ***items for an individual***
+            } else if (randItem <= 90) {
+                itemCount = getRandom(21, 30);// 20% purhcase 21-30
+            } else {
+                itemCount = getRandom(31, 60);// 10% purhcase 31-60
+            }
+            shoppingTime = itemCount * getRandom(itemShoppingTimeMin * 10, itemShoppingTimeMax * 10) / 10.0;
 
-    // Simulate customer arrivals and shopping
-    for (int currentTime = 0; currentTime <= storeOpenTime; ++currentTime) {
-        // Randomly decide how many customers arrived
-        int numArrivals = rand() % 3 + 1; // 1 to 3 customers
-
-        for (int i = 0; i < numArrivals; ++i) {
-            Customer customer;
-            customer.items = rand() % 60 + 1; // 1 to 60 items
-            customer.shoppingTime = customer.items * (30 + rand() % 31); // 30 to 60 seconds per item
-            customer.enterQueueTime = currentTime + customer.shoppingTime;
-
-            // Add customer to the shoppers list
-            shoppers.addElement(customer);
+            // Add customer to shopper list
+            listType customer;
+            customer.cartId = currentTime + shoppingTime; // Set enterQTime
+            customer.itemCount = itemCount;
+            customer.enterQTime = currentTime;
+            shopperList.addElement(customer);
         }
 
         // Update checkout lines
-        for (int i = 0; i < numCheckouts; ++i) {
-            if (!shoppers.listIsEmpty()) {
-                Customer customer = shoppers.peek();
-                if (customer.enterQueueTime <= currentTime) {
-                    checkouts[i].enQueue(customer);
-                    shoppers.delElement();
+        for (int j = 0; j < numCheckoutLines; j++) {
+            int queueLength = checkoutLines[j].queueLength();
+            if (!checkoutLines[j].queueEmpty()) {
+                queueNodeData frontCustomer = checkoutLines[j].peek();
+                if (frontCustomer.timeAvailable <= currentTime) {
+                    checkoutLines[j].deQueue(); // Customer has finished checkout
+                    stats[j].updateStats(frontCustomer.itemCount, currentTime, checkoutLines[j].queueEmpty(), queueLength);
                 }
             }
-        }
-    }
 
-    // Process remaining customers in the store
-    while (!shoppers.listIsEmpty()) {
-        for (int i = 0; i < numCheckouts; ++i) {
-            if (!shoppers.listIsEmpty()) {
-                Customer customer = shoppers.peek();
-                if (customer.enterQueueTime <= storeOpenTime) {
-                    checkouts[i].enQueue(customer);
-                    shoppers.delElement();
+            if (!shopperList.listIsEmpty()) {
+                listType frontShopper = shopperList.peek();
+                if (frontShopper.enterQTime <= currentTime) {
+                    // Add shopper to shortest queue
+                    int shortestLineIndex = 0;
+                    int shortestLineLength = checkoutLines[0].queueEmpty() ? 0 : checkoutLines[0].peek().itemCount;
+                    for (int k = 1; k < numCheckoutLines; k++) {
+                        int currentLineLength = checkoutLines[k].queueEmpty() ? 0 : checkoutLines[k].peek().itemCount;
+                        if (currentLineLength < shortestLineLength) {
+                            shortestLineIndex = k;
+                            shortestLineLength = currentLineLength;
+                        }
+                    }
+                    queueNodeData shopper;
+                    shopper.timeAvailable = currentTime + frontShopper.itemCount * itemCheckoutTimePerItem;
+                    shopper.itemCount = frontShopper.itemCount;
+                    checkoutLines[shortestLineIndex].enQueue(shopper);
+                    shopperList.delElement();
                 }
             }
         }
     }
 
     // Print checkout statistics
-    for (int i = 0; i < numCheckouts; ++i) {
-        cout << "Checkout Line " << i+1 << " Statistics:" << endl;
-        cout << "Total Customers Helped: " << checkouts[i].totalCustomersProcessed() << endl;
-        cout << "Total Number of Items: " << checkouts[i].totalItemsProcessed() << endl;
-        cout << "Maximum Line Length: " << checkouts[i].maxQueueLength() << endl;
-        cout << "Total Minutes of Idle Time: " << checkouts[i].totalIdleTime() << endl;
-        cout << "Total Minutes of Overtime: " << checkouts[i].totalOverTime() << endl;
-        cout << endl;
+    for (int i = 0; i < numCheckoutLines; i++) {
+        stats[i].printStats(i);
+    }
+}
+
+int main() {
+    int numCheckoutLines;
+    cout << "Enter the number of checkout lines (1-10): ";
+    cin >> numCheckoutLines;
+    if (numCheckoutLines < 1 || numCheckoutLines > 10) {
+        cout << "Invalid number of checkout lines. Please enter a number between 1 and 10." << endl;
+        return 1;
     }
 
-    // Clean up
-    delete[] checkouts;
+    simulateStore(numCheckoutLines);
 
     return 0;
 }
